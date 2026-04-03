@@ -66,7 +66,7 @@ export function AccountList() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {accounts.map((account) => (
-          <AccountCard key={account.id} account={account} />
+          <AccountCard key={account.id} account={account} onBalanceUpdate={fetchAccounts} />
         ))}
       </div>
     </div>
