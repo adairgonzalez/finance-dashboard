@@ -29,6 +29,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# Plaid access tokens (sensitive — never commit)
+plaid-tokens.json
+
 # vercel
 .vercel
 
