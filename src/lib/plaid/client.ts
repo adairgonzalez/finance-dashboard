@@ -1,4 +1,9 @@
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
+export {
+  addAccessToken,
+  clearAccessTokens,
+  getAccessTokens,
+} from "@/lib/plaid/access-token-store";
 
 const useMock =
   !process.env.PLAID_CLIENT_ID ||
@@ -18,18 +23,5 @@ const configuration = useMock
     });
 
 const client = configuration ? new PlaidApi(configuration) : null;
-
-// In-memory store for access tokens (demo only — use a database in production)
-const accessTokens: string[] = [];
-
-export function addAccessToken(token: string) {
-  if (!accessTokens.includes(token)) {
-    accessTokens.push(token);
-  }
-}
-
-export function getAccessTokens(): string[] {
-  return accessTokens;
-}
 
 export { client, useMock };

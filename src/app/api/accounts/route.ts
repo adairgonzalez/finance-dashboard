@@ -1,10 +1,16 @@
 import { getMockAccounts } from "@/lib/plaid/mock-data";
-import { client, useMock, getAccessTokens } from "@/lib/plaid/client";
-import { getBalanceOverrides } from "@/lib/balance-overrides";
+import {
+  clearAccessTokens,
+  client,
+  useMock,
+  getAccessTokens,
+} from "@/lib/plaid/client";
+import { clearBalanceOverrides, getBalanceOverrides } from "@/lib/balance-overrides";
 import { CreditCardAccount } from "@/types/account";
 import { NextResponse } from "next/server";
 
 const CARD_COLORS = ["#1a3c6e", "#c5a44e", "#003b70", "#ff6000", "#d03027", "#5b21b6", "#0f766e", "#be185d"];
+let mockAccountsRemoved = false;
 
 function applyOverrides(accounts: CreditCardAccount[]): CreditCardAccount[] {
   const overrides = getBalanceOverrides();
@@ -26,10 +32,13 @@ function applyOverrides(accounts: CreditCardAccount[]): CreditCardAccount[] {
 
 export async function GET() {
   if (useMock || !client) {
+    if (mockAccountsRemoved) {
+      return NextResponse.json([]);
+    }
     return NextResponse.json(applyOverrides(getMockAccounts()));
   }
 
-  const tokens = getAccessTokens();
+  const tokens = await getAccessTokens();
   if (tokens.length === 0) {
     return NextResponse.json([]);
   }
@@ -86,4 +95,12 @@ export async function GET() {
   }
 
   return NextResponse.json(applyOverrides(accounts));
+}
+
+export async function DELETE() {
+  await clearAccessTokens();
+  clearBalanceOverrides();
+  mockAccountsRemoved = true;
+
+  return NextResponse.json({ success: true });
 }

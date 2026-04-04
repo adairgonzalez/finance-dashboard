@@ -4,12 +4,13 @@ import { useState, useEffect } from "react";
 import { CreditCardAccount } from "@/types/account";
 import { AccountCard } from "./account-card";
 import { PlaidLinkButton } from "./plaid-link-button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Trash2 } from "lucide-react";
 
 export function AccountList() {
   const [accounts, setAccounts] = useState<CreditCardAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const fetchAccounts = async () => {
     try {
@@ -29,6 +30,18 @@ export function AccountList() {
     const interval = setInterval(fetchAccounts, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleRemoveAccounts = async () => {
+    setRemoving(true);
+    try {
+      await fetch("/api/accounts", { method: "DELETE" });
+      await fetchAccounts();
+    } catch (err) {
+      console.error("Failed to remove accounts:", err);
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -50,6 +63,15 @@ export function AccountList() {
           Credit Card Accounts
         </h2>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleRemoveAccounts}
+            disabled={removing}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50"
+            title="Remove all accounts"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {removing ? "Removing..." : "Remove Accounts"}
+          </button>
           <PlaidLinkButton onSuccess={fetchAccounts} />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {lastUpdated && (

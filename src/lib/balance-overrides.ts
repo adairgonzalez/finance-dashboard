@@ -8,3 +8,9 @@ export function getBalanceOverrides() {
 export function setBalanceOverride(accountId: string, currentBalance: number, creditLimit: number) {
   balanceOverrides[accountId] = { currentBalance, creditLimit };
 }
+
+export function clearBalanceOverrides() {
+  for (const key of Object.keys(balanceOverrides)) {
+    delete balanceOverrides[key];
+  }
+}

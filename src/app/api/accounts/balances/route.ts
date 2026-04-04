@@ -1,4 +1,8 @@
-import { getBalanceOverrides, setBalanceOverride } from "@/lib/balance-overrides";
+import {
+  clearBalanceOverrides,
+  getBalanceOverrides,
+  setBalanceOverride,
+} from "@/lib/balance-overrides";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -19,4 +23,9 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json(getBalanceOverrides());
+}
+
+export async function DELETE() {
+  clearBalanceOverrides();
+  return NextResponse.json({ success: true });
 }

@@ -19,7 +19,7 @@ export function PlaidLinkButton({ onSuccess }: PlaidLinkButtonProps) {
     try {
       const res = await fetch("/api/plaid/link-token", { method: "POST" });
       const data = await res.json();
-      if (data.error) {
+      if (!res.ok || data.error) {
         setError(data.error);
         return;
       }
@@ -34,11 +34,16 @@ export function PlaidLinkButton({ onSuccess }: PlaidLinkButtonProps) {
   const onPlaidSuccess = useCallback(
     async (publicToken: string) => {
       try {
-        await fetch("/api/plaid/exchange-token", {
+        const res = await fetch("/api/plaid/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken }),
         });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setError(data.error || "Failed to connect account");
+          return;
+        }
         onSuccess();
       } catch {
         setError("Failed to connect account");
@@ -50,6 +55,14 @@ export function PlaidLinkButton({ onSuccess }: PlaidLinkButtonProps) {
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
+    onExit: (err) => {
+      if (!err) return;
+      setError(
+        err.display_message ||
+          err.error_message ||
+          "Plaid Link closed with an error"
+      );
+    },
   });
 
   if (linkToken && ready) {
