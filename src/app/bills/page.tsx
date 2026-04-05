@@ -12,6 +12,8 @@ import {
   Save,
   X,
   Wallet,
+  Users,
+  Gift,
 } from "lucide-react";
 
 const BILL_CATEGORIES: { value: Bill["category"]; label: string }[] = [
@@ -35,17 +37,118 @@ const CATEGORY_COLORS: Record<Bill["category"], string> = {
 interface ProfileState {
   monthlyPaycheck: number;
   payFrequency: "weekly" | "biweekly" | "semimonthly" | "monthly";
+  partnerIncome: number;
+  bonusAmount: number;
+  bonusIncluded: boolean;
+}
+
+const profileDefaults: ProfileState = {
+  monthlyPaycheck: 0,
+  payFrequency: "biweekly",
+  partnerIncome: 0,
+  bonusAmount: 0,
+  bonusIncluded: false,
+};
+
+// Editable income card component
+function IncomeCard({
+  icon: Icon,
+  iconColor,
+  iconBg,
+  label,
+  value,
+  subtitle,
+  onSave,
+}: {
+  icon: React.ElementType;
+  iconColor: string;
+  iconBg: string;
+  label: string;
+  value: number;
+  subtitle?: string;
+  onSave: (val: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className={`rounded-lg p-2 ${iconBg}`}>
+            <Icon className={`h-4 w-4 ${iconColor}`} />
+          </div>
+          <span className="text-xs text-muted-foreground">{label}</span>
+        </div>
+        {!editing && (
+          <button
+            onClick={() => {
+              setDraft(String(value || ""));
+              setEditing(true);
+            }}
+            className="p-1 rounded hover:bg-accent"
+          >
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <div className="relative">
+            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="number"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="w-full rounded-lg border border-input bg-background pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="0"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onSave(parseFloat(draft) || 0);
+                  setEditing(false);
+                }
+                if (e.key === "Escape") setEditing(false);
+              }}
+            />
+          </div>
+          <div className="flex gap-1">
+            <button
+              onClick={() => {
+                onSave(parseFloat(draft) || 0);
+                setEditing(false);
+              }}
+              className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground px-2 py-1.5 text-xs hover:bg-primary/90"
+            >
+              <Save className="h-3 w-3" /> Save
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-lg border border-border px-2 py-1.5 text-xs hover:bg-accent"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className={`text-xl font-bold ${iconColor}`}>
+            {value > 0 ? formatCurrency(value) : "Not set"}
+          </p>
+          {subtitle && value > 0 && (
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function BillsPage() {
   const [bills, setBills] = useState<Bill[]>([]);
-  const [profile, setProfile] = useState<ProfileState>({
-    monthlyPaycheck: 0,
-    payFrequency: "biweekly",
-  });
+  const [profile, setProfile] = useState<ProfileState>(profileDefaults);
   const [editingBill, setEditingBill] = useState<Partial<Bill> | null>(null);
-  const [editingPaycheck, setEditingPaycheck] = useState(false);
-  const [paycheckDraft, setPaycheckDraft] = useState("");
+  const [editingPayFreq, setEditingPayFreq] = useState(false);
   const [freqDraft, setFreqDraft] = useState<ProfileState["payFrequency"]>("biweekly");
   const [loading, setLoading] = useState(true);
 
@@ -56,15 +159,22 @@ export default function BillsPage() {
     ])
       .then(([b, p]) => {
         if (Array.isArray(b)) setBills(b);
-        if (p && typeof p.monthlyPaycheck === "number") {
-          setProfile(p);
-          setPaycheckDraft(String(p.monthlyPaycheck || ""));
-          setFreqDraft(p.payFrequency || "biweekly");
-        }
+        setProfile({ ...profileDefaults, ...p });
+        setFreqDraft(p?.payFrequency || "biweekly");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const saveProfile = async (patch: Partial<ProfileState>) => {
+    const updated = { ...profile, ...patch };
+    setProfile(updated);
+    await fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    });
+  };
 
   const saveBill = async (bill: Partial<Bill>) => {
     const full: Bill = {
@@ -75,7 +185,6 @@ export default function BillsPage() {
       category: bill.category || "other",
       isAutoPay: bill.isAutoPay || false,
     };
-
     const res = await fetch("/api/bills", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -96,21 +205,12 @@ export default function BillsPage() {
     if (Array.isArray(updated)) setBills(updated);
   };
 
-  const savePaycheck = async () => {
-    const val = parseFloat(paycheckDraft);
-    if (isNaN(val) || val < 0) return;
-    const updated = { monthlyPaycheck: val, payFrequency: freqDraft };
-    await fetch("/api/profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updated),
-    });
-    setProfile(updated);
-    setEditingPaycheck(false);
-  };
-
   const totalBills = bills.reduce((s, b) => s + b.amount, 0);
-  const afterBills = profile.monthlyPaycheck - totalBills;
+  const combinedIncome =
+    profile.monthlyPaycheck +
+    profile.partnerIncome +
+    (profile.bonusIncluded ? profile.bonusAmount : 0);
+  const afterBills = combinedIncome - totalBills;
 
   if (loading) {
     return (
@@ -130,89 +230,166 @@ export default function BillsPage() {
           Bills & Income
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your monthly bills and paycheck to get better financial insights
+          Manage your household income and monthly bills
         </p>
       </div>
 
-      {/* Income + Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Monthly Paycheck */}
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-green-50 p-2">
-                <Wallet className="h-4 w-4 text-green-600" />
-              </div>
-              <span className="text-xs text-muted-foreground">Monthly Income</span>
-            </div>
-            {!editingPaycheck && (
+      {/* ── Income Section ── */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold text-foreground">Income</h2>
+          <div className="flex items-center gap-2">
+            {!editingPayFreq ? (
               <button
                 onClick={() => {
-                  setPaycheckDraft(String(profile.monthlyPaycheck || ""));
                   setFreqDraft(profile.payFrequency);
-                  setEditingPaycheck(true);
+                  setEditingPayFreq(true);
                 }}
-                className="p-1 rounded hover:bg-accent"
+                className="text-xs text-muted-foreground hover:text-foreground capitalize border border-border rounded-lg px-2.5 py-1 transition-colors"
               >
-                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                Paid {profile.payFrequency}
               </button>
-            )}
-          </div>
-          {editingPaycheck ? (
-            <div className="space-y-2">
-              <div className="relative">
-                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <input
-                  type="number"
-                  value={paycheckDraft}
-                  onChange={(e) => setPaycheckDraft(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="0"
+            ) : (
+              <div className="flex items-center gap-1">
+                <select
+                  value={freqDraft}
+                  onChange={(e) => setFreqDraft(e.target.value as ProfileState["payFrequency"])}
+                  className="rounded-lg border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                   autoFocus
-                />
-              </div>
-              <select
-                value={freqDraft}
-                onChange={(e) => setFreqDraft(e.target.value as ProfileState["payFrequency"])}
-                className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="semimonthly">Semi-monthly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-              <div className="flex gap-1">
-                <button
-                  onClick={savePaycheck}
-                  className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground px-2 py-1.5 text-xs hover:bg-primary/90"
                 >
-                  <Save className="h-3 w-3" /> Save
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Biweekly</option>
+                  <option value="semimonthly">Semi-monthly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+                <button
+                  onClick={() => {
+                    saveProfile({ payFrequency: freqDraft });
+                    setEditingPayFreq(false);
+                  }}
+                  className="rounded-lg bg-primary text-primary-foreground px-2 py-1 text-xs hover:bg-primary/90"
+                >
+                  <Save className="h-3 w-3" />
                 </button>
                 <button
-                  onClick={() => setEditingPaycheck(false)}
-                  className="rounded-lg border border-border px-2 py-1.5 text-xs hover:bg-accent"
+                  onClick={() => setEditingPayFreq(false)}
+                  className="rounded-lg border border-border px-2 py-1 text-xs hover:bg-accent"
                 >
                   <X className="h-3 w-3" />
                 </button>
               </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-xl font-bold text-green-600">
-                {profile.monthlyPaycheck > 0
-                  ? formatCurrency(profile.monthlyPaycheck)
-                  : "Not set"}
-              </p>
-              {profile.monthlyPaycheck > 0 && (
-                <p className="text-xs text-muted-foreground capitalize">
-                  {profile.payFrequency}
-                </p>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Total Bills */}
+        <div className="p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <IncomeCard
+              icon={Wallet}
+              iconColor="text-green-600"
+              iconBg="bg-green-50"
+              label="Your Income"
+              value={profile.monthlyPaycheck}
+              subtitle={`${profile.payFrequency} pay`}
+              onSave={(val) => saveProfile({ monthlyPaycheck: val })}
+            />
+            <IncomeCard
+              icon={Users}
+              iconColor="text-violet-600"
+              iconBg="bg-violet-50"
+              label="Partner Income"
+              value={profile.partnerIncome}
+              subtitle="monthly"
+              onSave={(val) => saveProfile({ partnerIncome: val })}
+            />
+
+            {/* Bonus card with toggle */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg bg-amber-50 p-2">
+                    <Gift className="h-4 w-4 text-amber-600" />
+                  </div>
+                  <span className="text-xs text-muted-foreground">One-time Bonus</span>
+                </div>
+              </div>
+
+              {profile.bonusAmount > 0 ? (
+                <>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <p className={`text-xl font-bold ${profile.bonusIncluded ? "text-amber-600" : "text-muted-foreground/40 line-through"}`}>
+                      {formatCurrency(profile.bonusAmount)}
+                    </p>
+                    <button
+                      onClick={() => {
+                        const val = prompt("Update bonus amount:", String(profile.bonusAmount));
+                        if (val !== null) saveProfile({ bonusAmount: parseFloat(val) || 0 });
+                      }}
+                      className="p-0.5 rounded hover:bg-accent"
+                    >
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </div>
+                  {/* Toggle */}
+                  <button
+                    onClick={() => saveProfile({ bonusIncluded: !profile.bonusIncluded })}
+                    className={`
+                      w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition-all
+                      ${profile.bonusIncluded
+                        ? "bg-amber-50 text-amber-700 border border-amber-200"
+                        : "bg-secondary text-muted-foreground border border-border hover:border-amber-200"
+                      }
+                    `}
+                  >
+                    <span>{profile.bonusIncluded ? "Included in calculations" : "Not included"}</span>
+                    <div className={`relative w-8 h-[18px] rounded-full transition-colors ${profile.bonusIncluded ? "bg-amber-500" : "bg-border"}`}>
+                      <div className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform ${profile.bonusIncluded ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
+                    </div>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    const val = prompt("Enter bonus amount:");
+                    if (val) saveProfile({ bonusAmount: parseFloat(val) || 0, bonusIncluded: true });
+                  }}
+                  className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+                >
+                  + Add bonus
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Combined income summary bar */}
+          {combinedIncome > 0 && (
+            <div className="mt-4 rounded-lg bg-secondary/50 px-4 py-3 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Combined household income this month
+                {profile.bonusIncluded && profile.bonusAmount > 0 && " (incl. bonus)"}
+              </span>
+              <span className="text-sm font-bold text-foreground">
+                {formatCurrency(combinedIncome)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="rounded-lg bg-green-50 p-2">
+              <DollarSign className="h-4 w-4 text-green-600" />
+            </div>
+            <span className="text-xs text-muted-foreground">Total Income</span>
+          </div>
+          <p className="text-xl font-bold text-green-600">
+            {combinedIncome > 0 ? formatCurrency(combinedIncome) : "—"}
+          </p>
+        </div>
+
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <div className="rounded-lg bg-red-50 p-2">
@@ -228,7 +405,6 @@ export default function BillsPage() {
           </p>
         </div>
 
-        {/* After Bills */}
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <div className={`rounded-lg p-2 ${afterBills >= 0 ? "bg-blue-50" : "bg-yellow-50"}`}>
@@ -237,9 +413,7 @@ export default function BillsPage() {
             <span className="text-xs text-muted-foreground">After Bills</span>
           </div>
           <p className={`text-xl font-bold ${afterBills >= 0 ? "text-blue-600" : "text-yellow-600"}`}>
-            {profile.monthlyPaycheck > 0
-              ? formatCurrency(afterBills)
-              : "—"}
+            {combinedIncome > 0 ? formatCurrency(afterBills) : "—"}
           </p>
           <p className="text-xs text-muted-foreground">
             Available for debt & savings
@@ -247,7 +421,7 @@ export default function BillsPage() {
         </div>
       </div>
 
-      {/* Bills List */}
+      {/* ── Bills List ── */}
       <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">Monthly Bills</h2>
