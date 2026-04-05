@@ -23,15 +23,21 @@ export async function POST(req: NextRequest) {
   // Load bills and profile from KV for full context
   let bills: Bill[] = [];
   let monthlyPaycheck = 0;
+  let partnerMonthlyIncome = 0;
+  let oneTimeBonus = 0;
   let payFrequency = "biweekly";
   try {
-    const [b, p] = await Promise.all([
-      kvGet<Bill[]>("user:bills"),
-      kvGet<{ monthlyPaycheck: number; payFrequency: string }>("user:profile"),
-    ]);
-    if (b) bills = b;
+    const p = await kvGet<{
+      monthlyPaycheck: number;
+      partnerMonthlyIncome: number;
+      oneTimeBonus: number;
+      payFrequency: string;
+    }>("user:profile");
+
     if (p) {
       monthlyPaycheck = p.monthlyPaycheck || 0;
+      partnerMonthlyIncome = p.partnerMonthlyIncome || 0;
+      oneTimeBonus = p.oneTimeBonus || 0;
       payFrequency = p.payFrequency || "biweekly";
     }
   } catch {
@@ -43,6 +49,8 @@ export async function POST(req: NextRequest) {
   const utilizationPct =
     totalCredit > 0 ? ((totalDebt / totalCredit) * 100).toFixed(1) : "0.0";
   const totalBills = bills.reduce((sum, b) => sum + b.amount, 0);
+
+  const totalMonthlyIncome = monthlyPaycheck + partnerMonthlyIncome;
 
   const accountsSection =
     accounts.length > 0
@@ -65,8 +73,13 @@ export async function POST(req: NextRequest) {
       : "- No bills tracked yet.";
 
   const incomeSection =
-    monthlyPaycheck > 0
-      ? `$${monthlyPaycheck.toFixed(2)}/month (paid ${payFrequency})`
+    totalMonthlyIncome > 0
+      ? `
+- Your income: $${monthlyPaycheck.toFixed(2)}/month (paid ${payFrequency})
+- Partner's income: $${partnerMonthlyIncome.toFixed(2)}/month
+- Combined monthly income: $${totalMonthlyIncome.toFixed(2)}
+${oneTimeBonus > 0 ? `- One-time bonus (next paycheck): $${oneTimeBonus.toFixed(2)}` : ""}
+`
       : "Not set";
 
   const systemPrompt = `You are a helpful, friendly financial advisor assistant built into a personal finance dashboard. You have access to the user's real-time financial data shown below.
@@ -79,21 +92,23 @@ ${accountsSection}
 USER'S MONTHLY BILLS:
 ${billsSection}
 
-USER'S INCOME:
+USER'S INCOME & BONUSES:
 ${incomeSection}
 
 SUMMARY:
-- Monthly income: ${monthlyPaycheck > 0 ? `$${monthlyPaycheck.toFixed(2)}` : "Not set"}
+- Combined monthly income: ${totalMonthlyIncome > 0 ? `$${totalMonthlyIncome.toFixed(2)}` : "Not set"}
 - Total monthly bills: $${totalBills.toFixed(2)}
-- After bills: ${monthlyPaycheck > 0 ? `$${(monthlyPaycheck - totalBills).toFixed(2)}` : "Unknown"}
+- After bills: ${totalMonthlyIncome > 0 ? `$${(totalMonthlyIncome - totalBills).toFixed(2)}` : "Unknown"}
 - Total credit card debt: $${totalDebt.toFixed(2)}
 - Total credit limit: $${totalCredit.toFixed(2)}
 - Overall utilization: ${utilizationPct}%
+${oneTimeBonus > 0 ? `- Upcoming one-time bonus: $${oneTimeBonus.toFixed(2)}` : ""}
 
 Current date: ${new Date().toISOString().split("T")[0]}
 
 Guidelines:
 - If asked about paycheck allocation, factor in their bills as mandatory expenses before recommending debt payments.
+- If the user has a one-time bonus, suggest strategies for allocating it effectively (e.g., paying down high-interest debt, building an emergency fund).
 - Use the avalanche method (highest APR first) or snowball method (smallest balance first) based on their preference.
 - Flag any cards with high utilization (>30%) or upcoming due dates.
 - When discussing budgets, account for their tracked bills as fixed expenses.
