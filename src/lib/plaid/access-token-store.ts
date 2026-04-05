@@ -6,18 +6,21 @@ let hasWarnedAboutMemoryFallback = false;
 function getKvConfig() {
   const url =
     process.env.REDIS_URL ||
+    process.env.main_REDIS_URL ||
     process.env.KV_REST_API_URL ||
+    process.env.main_KV_REST_API_URL ||
     process.env.UPSTASH_REDIS_REST_URL;
   const token =
     process.env.REDIS_TOKEN ||
     process.env.KV_REST_API_TOKEN ||
+    process.env.main_KV_REST_API_TOKEN ||
     process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
     if (process.env.VERCEL && !hasWarnedAboutMemoryFallback) {
       hasWarnedAboutMemoryFallback = true;
       console.warn(
-        "REDIS_URL/REDIS_TOKEN, KV_REST_API_URL/KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN not set. Falling back to in-memory Plaid token storage. This will not persist across Vercel serverless invocations."
+        "REDIS_URL/REDIS_TOKEN, main_REDIS_URL/main_KV_REST_API_TOKEN, KV_REST_API_URL/KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN not set. Falling back to in-memory Plaid token storage. This will not persist across Vercel serverless invocations."
       );
     }
     return null;
