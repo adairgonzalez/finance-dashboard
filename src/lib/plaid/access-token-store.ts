@@ -4,7 +4,7 @@ const memoryTokens = new Set<string>();
 let hasWarnedAboutMemoryFallback = false;
 
 function getKvConfig() {
-  const url =
+  const rawUrl =
     process.env.KV_REST_API_URL ||
     process.env.main_KV_REST_API_URL ||
     process.env.UPSTASH_REDIS_REST_URL ||
@@ -16,10 +16,10 @@ function getKvConfig() {
     process.env.main_KV_REST_API_TOKEN ||
     process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  const isHttpUrl = !!url && /^https?:\/\//i.test(url);
+  const isHttpUrl = !!rawUrl && /^https?:\/\//i.test(rawUrl);
 
-  if (!url || !token || !isHttpUrl) {
-    if (process.env.VERCEL && !hasWarnedAboutMemoryFallback) {
+  if (!rawUrl || !token || !isHttpUrl) {
+    if (!hasWarnedAboutMemoryFallback) {
       hasWarnedAboutMemoryFallback = true;
       console.warn(
         "A valid HTTP REST Redis/KV URL and token were not found (KV_REST_API_URL/main_KV_REST_API_URL/UPSTASH_REDIS_REST_URL with KV_REST_API_TOKEN/main_KV_REST_API_TOKEN/UPSTASH_REDIS_REST_TOKEN). Falling back to in-memory Plaid token storage. This will not persist across Vercel serverless invocations."
@@ -28,18 +28,22 @@ function getKvConfig() {
     return null;
   }
 
+  // Strip trailing slash to avoid double-slash when concatenating paths
+  const url = rawUrl.replace(/\/+$/, "");
   return { url, token };
 }
 
-async function kvRequest(path: string) {
+async function kvRequest(path: string, method: "GET" | "POST" = "GET", body?: unknown) {
   const config = getKvConfig();
   if (!config) return null;
 
   const res = await fetch(`${config.url}${path}`, {
-    method: "GET",
+    method,
     headers: {
       Authorization: `Bearer ${config.token}`,
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
 
@@ -77,8 +81,8 @@ async function setTokensInKv(tokens: string[]) {
   const config = getKvConfig();
   if (!config) return;
 
-  const value = encodeURIComponent(JSON.stringify(tokens));
-  await kvRequest(`/set/${encodeURIComponent(KV_KEY)}/${value}`);
+  // Use POST with JSON body to avoid URL encoding issues with complex values
+  await kvRequest("/set", "POST", [KV_KEY, JSON.stringify(tokens)]);
 }
 
 export async function addAccessToken(token: string) {
