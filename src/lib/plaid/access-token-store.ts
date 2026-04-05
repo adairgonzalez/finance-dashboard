@@ -22,49 +22,50 @@ function getKvConfig() {
     if (!hasWarnedAboutMemoryFallback) {
       hasWarnedAboutMemoryFallback = true;
       console.warn(
-        "A valid HTTP REST Redis/KV URL and token were not found (KV_REST_API_URL/main_KV_REST_API_URL/UPSTASH_REDIS_REST_URL with KV_REST_API_TOKEN/main_KV_REST_API_TOKEN/UPSTASH_REDIS_REST_TOKEN). Falling back to in-memory Plaid token storage. This will not persist across Vercel serverless invocations."
+        "No valid HTTP REST Redis/KV URL+token found. Falling back to in-memory token storage."
       );
     }
     return null;
   }
 
-  // Strip trailing slash to avoid double-slash when concatenating paths
   const url = rawUrl.replace(/\/+$/, "");
   return { url, token };
 }
 
-async function kvRequest(path: string, method: "GET" | "POST" = "GET", body?: unknown) {
+/**
+ * Send a Redis command via the Upstash REST API.
+ * Uses POST with JSON body: ["COMMAND", "arg1", "arg2", ...]
+ * This avoids all URL-encoding issues with values in the path.
+ */
+async function kvCommand(...args: string[]): Promise<{ result: unknown } | null> {
   const config = getKvConfig();
   if (!config) return null;
 
-  const res = await fetch(`${config.url}${path}`, {
-    method,
+  const res = await fetch(config.url, {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${config.token}`,
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      "Content-Type": "application/json",
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: JSON.stringify(args),
     cache: "no-store",
   });
 
   if (!res.ok) {
-    throw new Error(`KV request failed: ${res.status} ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`KV ${args[0]} failed: ${res.status} ${res.statusText} — ${text}`);
   }
 
-  return (await res.json()) as { result?: unknown };
+  return (await res.json()) as { result: unknown };
 }
 
 async function getTokensFromKv(): Promise<string[] | null> {
-  const config = getKvConfig();
-  if (!config) return null;
+  const data = await kvCommand("GET", KV_KEY);
+  if (!data) return null; // no KV config
 
-  const data = await kvRequest(`/get/${encodeURIComponent(KV_KEY)}`);
-  const raw = data?.result;
-
+  const raw = data.result;
   if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.filter((v): v is string => typeof v === "string");
-  }
+
   if (typeof raw !== "string") return [];
 
   try {
@@ -78,20 +79,17 @@ async function getTokensFromKv(): Promise<string[] | null> {
 }
 
 async function setTokensInKv(tokens: string[]) {
-  const config = getKvConfig();
-  if (!config) return;
-
-  // POST /set/<key> with value as body — correct Upstash REST API format
-  await kvRequest(`/set/${encodeURIComponent(KV_KEY)}`, "POST", JSON.stringify(tokens));
+  await kvCommand("SET", KV_KEY, JSON.stringify(tokens));
 }
 
 export async function addAccessToken(token: string) {
   try {
     const kvTokens = await getTokensFromKv();
-    if (kvTokens) {
+    if (kvTokens !== null) {
       if (!kvTokens.includes(token)) {
         kvTokens.push(token);
         await setTokensInKv(kvTokens);
+        console.log(`Saved ${kvTokens.length} token(s) to KV`);
       }
       return;
     }
@@ -105,7 +103,7 @@ export async function addAccessToken(token: string) {
 export async function getAccessTokens(): Promise<string[]> {
   try {
     const kvTokens = await getTokensFromKv();
-    if (kvTokens) return kvTokens;
+    if (kvTokens !== null) return kvTokens;
   } catch (err) {
     console.error("Failed to read Plaid access tokens from KV:", err);
   }
@@ -115,11 +113,8 @@ export async function getAccessTokens(): Promise<string[]> {
 
 export async function clearAccessTokens() {
   try {
-    const kvTokens = await getTokensFromKv();
-    if (kvTokens) {
-      await setTokensInKv([]);
-      return;
-    }
+    const result = await kvCommand("DEL", KV_KEY);
+    if (result !== null) return;
   } catch (err) {
     console.error("Failed to clear Plaid access tokens from KV:", err);
   }
