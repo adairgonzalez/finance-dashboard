@@ -1,6 +1,6 @@
 export interface PaycheckInput {
   amount: number;
-  frequency: "biweekly" | "semimonthly" | "monthly";
+  frequency: "weekly" | "biweekly" | "semimonthly" | "monthly";
   nextPayDate: string;
   fixedExpenses: number;
   savingsGoalPercent: number;

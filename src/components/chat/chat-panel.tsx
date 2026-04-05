@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatMessage } from "@/types/chat";
 import { CreditCardAccount } from "@/types/account";
 import { ChatMessageBubble } from "./chat-message";
-import { Send, Loader2, Bot } from "lucide-react";
+import { Send, Loader2, Bot, Trash2 } from "lucide-react";
 
 export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -19,12 +20,52 @@ export function ChatPanel() {
 
   useEffect(scrollToBottom, [messages]);
 
+  // Load chat history on mount
+  useEffect(() => {
+    fetch("/api/chat-history")
+      .then((r) => r.json())
+      .then((stored: Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: string }>) => {
+        if (Array.isArray(stored) && stored.length > 0) {
+          setMessages(
+            stored.map((m) => ({
+              ...m,
+              timestamp: new Date(m.timestamp),
+            }))
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoaded(true));
+  }, []);
+
+  // Save chat history
+  const saveHistory = useCallback((msgs: ChatMessage[]) => {
+    if (msgs.length === 0) return;
+    const toSave = msgs
+      .filter((m) => m.content.length > 0)
+      .map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp.toISOString(),
+      }));
+    fetch("/api/chat-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: toSave }),
+    }).catch(() => {});
+  }, []);
+
+  const clearHistory = async () => {
+    setMessages([]);
+    fetch("/api/chat-history", { method: "DELETE" }).catch(() => {});
+  };
+
   const getCurrentAccounts = async (): Promise<CreditCardAccount[]> => {
     try {
       const res = await fetch("/api/accounts");
       const text = await res.text();
       if (!res.ok) return [];
-
       const parsed = text ? JSON.parse(text) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -75,6 +116,7 @@ export function ChatPanel() {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let finalMessages: ChatMessage[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -98,6 +140,7 @@ export function ChatPanel() {
                     ...last,
                     content: last.content + parsed.text,
                   };
+                  finalMessages = updated;
                   return updated;
                 });
               }
@@ -106,6 +149,11 @@ export function ChatPanel() {
             }
           }
         }
+      }
+
+      // Save after streaming completes
+      if (finalMessages.length > 0) {
+        saveHistory(finalMessages);
       }
     } catch {
       setMessages((prev) => {
@@ -140,7 +188,11 @@ export function ChatPanel() {
     <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-        {messages.length === 0 ? (
+        {!historyLoaded ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="rounded-full bg-primary/10 p-4 mb-4">
               <Bot className="h-8 w-8 text-primary" />
@@ -207,6 +259,16 @@ export function ChatPanel() {
               target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
             }}
           />
+          {messages.length > 0 && !isLoading && (
+            <button
+              type="button"
+              onClick={clearHistory}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-accent transition-colors"
+              title="Clear chat history"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="submit"
             disabled={!input.trim() || isLoading}

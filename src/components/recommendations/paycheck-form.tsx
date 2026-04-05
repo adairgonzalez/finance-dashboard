@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PaycheckInput } from "@/types/recommendation";
 import { DollarSign } from "lucide-react";
 
@@ -21,6 +21,30 @@ export function PaycheckForm({ onSubmit, isLoading }: PaycheckFormProps) {
   const [nextPayDate, setNextPayDate] = useState(nextPayDefault());
   const [fixedExpenses, setFixedExpenses] = useState("1800");
   const [savingsGoalPercent, setSavingsGoalPercent] = useState(15);
+  const [hasBills, setHasBills] = useState(false);
+
+  // Load saved profile and check if bills exist
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/profile").then((r) => r.json()),
+      fetch("/api/bills").then((r) => r.json()),
+    ])
+      .then(([profile, bills]) => {
+        if (profile?.monthlyPaycheck > 0) {
+          const freq = profile.payFrequency || "biweekly";
+          let perCheck = profile.monthlyPaycheck;
+          if (freq === "biweekly" || freq === "semimonthly") perCheck /= 2;
+          else if (freq === "weekly") perCheck /= 4;
+          setAmount(String(Math.round(perCheck * 100) / 100));
+          setFrequency(freq === "weekly" ? "biweekly" : freq);
+        }
+        if (Array.isArray(bills) && bills.length > 0) {
+          setHasBills(true);
+          setFixedExpenses("0");
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,27 +106,41 @@ export function PaycheckForm({ onSubmit, isLoading }: PaycheckFormProps) {
         />
       </div>
 
-      <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">
-          Fixed Monthly Expenses
-        </label>
-        <div className="relative">
-          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="number"
-            value={fixedExpenses}
-            onChange={(e) => setFixedExpenses(e.target.value)}
-            className="w-full rounded-lg border border-input bg-background pl-9 pr-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="1800"
-            min="0"
-            step="0.01"
-            required
-          />
+      {!hasBills && (
+        <div>
+          <label className="text-sm font-medium text-foreground mb-1.5 block">
+            Fixed Monthly Expenses
+          </label>
+          <div className="relative">
+            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="number"
+              value={fixedExpenses}
+              onChange={(e) => setFixedExpenses(e.target.value)}
+              className="w-full rounded-lg border border-input bg-background pl-9 pr-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="1800"
+              min="0"
+              step="0.01"
+              required
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Rent, utilities, subscriptions, etc. — or{" "}
+            <a href="/bills" className="text-primary hover:underline">
+              track bills individually
+            </a>
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Rent, utilities, subscriptions, insurance, etc.
+      )}
+
+      {hasBills && (
+        <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+          Your tracked bills will be used as fixed expenses.{" "}
+          <a href="/bills" className="text-primary hover:underline">
+            Manage bills
+          </a>
         </p>
-      </div>
+      )}
 
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">

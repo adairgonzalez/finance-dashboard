@@ -1,24 +1,59 @@
 import { CreditCardAccount } from "@/types/account";
+import { Bill } from "@/types/bill";
 import { PaycheckInput, AllocationResult, AllocationItem } from "@/types/recommendation";
+
+const BILL_CATEGORY_COLORS: Record<string, string> = {
+  housing: "#ef4444",
+  utilities: "#f59e0b",
+  insurance: "#3b82f6",
+  subscriptions: "#8b5cf6",
+  loans: "#ec4899",
+  other: "#6b7280",
+};
 
 export function calculateAllocation(
   input: PaycheckInput,
-  accounts: CreditCardAccount[]
+  accounts: CreditCardAccount[],
+  bills: Bill[] = []
 ): AllocationResult {
   const items: AllocationItem[] = [];
   let remaining = input.amount;
   let priority = 1;
 
-  // 1. Fixed expenses first
-  const fixedExpenses = input.fixedExpenses;
-  items.push({
-    category: "Fixed Expenses",
-    amount: fixedExpenses,
-    reason: "Rent, utilities, subscriptions, and other recurring bills",
-    priority: priority++,
-    color: "#6b7280",
-  });
-  remaining -= fixedExpenses;
+  // 1. Fixed expenses (legacy field) — only used if no bills are tracked
+  if (bills.length === 0 && input.fixedExpenses > 0) {
+    items.push({
+      category: "Fixed Expenses",
+      amount: input.fixedExpenses,
+      reason: "Rent, utilities, subscriptions, and other recurring bills",
+      priority: priority++,
+      color: "#6b7280",
+    });
+    remaining -= input.fixedExpenses;
+  }
+
+  // 1b. Itemized bills (when tracked)
+  if (bills.length > 0) {
+    // Scale bills to paycheck frequency
+    let billScale = 1;
+    if (input.frequency === "biweekly" || input.frequency === "semimonthly") {
+      billScale = 0.5; // half a month per paycheck
+    } else if (input.frequency === "weekly") {
+      billScale = 12 / 52; // ~0.23
+    }
+
+    for (const bill of bills.sort((a, b) => a.dueDay - b.dueDay)) {
+      const scaled = Math.round(bill.amount * billScale * 100) / 100;
+      items.push({
+        category: bill.name,
+        amount: scaled,
+        reason: `${bill.category} bill, due ${bill.dueDay}${bill.dueDay === 1 ? "st" : bill.dueDay === 2 ? "nd" : bill.dueDay === 3 ? "rd" : "th"}${bill.isAutoPay ? " (auto-pay)" : ""}`,
+        priority: priority++,
+        color: BILL_CATEGORY_COLORS[bill.category] || "#6b7280",
+      });
+      remaining -= scaled;
+    }
+  }
 
   // 2. Minimum payments on all cards (mandatory)
   const sortedByDue = [...accounts].sort(
@@ -31,6 +66,8 @@ export function calculateAllocation(
     const nextNextPay = new Date(nextPayDate);
     if (input.frequency === "biweekly" || input.frequency === "semimonthly") {
       nextNextPay.setDate(nextNextPay.getDate() + 15);
+    } else if (input.frequency === "weekly") {
+      nextNextPay.setDate(nextNextPay.getDate() + 7);
     } else {
       nextNextPay.setMonth(nextNextPay.getMonth() + 1);
     }
@@ -56,7 +93,7 @@ export function calculateAllocation(
   // 3. Savings goal
   const savingsAmount = Math.min(
     input.amount * (input.savingsGoalPercent / 100),
-    remaining * 0.5 // Don't let savings take more than half of what's left
+    remaining * 0.5
   );
   if (savingsAmount > 0) {
     items.push({
@@ -115,6 +152,12 @@ export function calculateAllocation(
   const upcomingDues = cardsWithUpcomingDue.length;
 
   let summary = `Based on your $${input.amount.toLocaleString()} paycheck, here's your recommended allocation. `;
+  if (bills.length > 0) {
+    const totalBillsScaled = items
+      .filter((i) => bills.some((b) => b.name === i.category))
+      .reduce((s, i) => s + i.amount, 0);
+    summary += `$${totalBillsScaled.toFixed(0)} goes to ${bills.length} tracked bill${bills.length > 1 ? "s" : ""}. `;
+  }
   if (highAPRCards.length > 0) {
     summary += `Focus extra payments on ${highAPRCards[0].name} (${(highAPRCards[0].apr * 100).toFixed(1)}% APR) to save the most on interest. `;
   }

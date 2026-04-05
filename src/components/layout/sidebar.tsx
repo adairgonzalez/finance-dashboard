@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CreditCard, MessageSquare, Calculator, LayoutDashboard } from "lucide-react";
+import { CreditCard, MessageSquare, Calculator, LayoutDashboard, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bills", label: "Bills & Income", icon: Receipt },
   { href: "/chat", label: "AI Advisor", icon: MessageSquare },
   { href: "/recommendations", label: "Paycheck Planner", icon: Calculator },
 ];
