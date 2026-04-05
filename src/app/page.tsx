@@ -11,8 +11,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetch("/api/accounts")
-      .then((r) => r.json())
-      .then(setAccounts);
+      .then(async (r) => {
+        const text = await r.text();
+        if (!r.ok) {
+          throw new Error(text || `Failed to fetch accounts (${r.status})`);
+        }
+        return text ? JSON.parse(text) : [];
+      })
+      .then(setAccounts)
+      .catch((err) => {
+        console.error("Failed to load dashboard accounts:", err);
+      });
   }, []);
 
   const totalDebt = accounts.reduce((s, a) => s + a.currentBalance, 0);

@@ -80,29 +80,42 @@ async function setTokensInKv(tokens: string[]) {
 }
 
 export async function addAccessToken(token: string) {
-  const kvTokens = await getTokensFromKv();
-  if (kvTokens) {
-    if (!kvTokens.includes(token)) {
-      kvTokens.push(token);
-      await setTokensInKv(kvTokens);
+  try {
+    const kvTokens = await getTokensFromKv();
+    if (kvTokens) {
+      if (!kvTokens.includes(token)) {
+        kvTokens.push(token);
+        await setTokensInKv(kvTokens);
+      }
+      return;
     }
-    return;
+  } catch (err) {
+    console.error("Failed to persist Plaid access token in KV:", err);
   }
 
   memoryTokens.add(token);
 }
 
 export async function getAccessTokens(): Promise<string[]> {
-  const kvTokens = await getTokensFromKv();
-  if (kvTokens) return kvTokens;
+  try {
+    const kvTokens = await getTokensFromKv();
+    if (kvTokens) return kvTokens;
+  } catch (err) {
+    console.error("Failed to read Plaid access tokens from KV:", err);
+  }
+
   return Array.from(memoryTokens);
 }
 
 export async function clearAccessTokens() {
-  const kvTokens = await getTokensFromKv();
-  if (kvTokens) {
-    await setTokensInKv([]);
-    return;
+  try {
+    const kvTokens = await getTokensFromKv();
+    if (kvTokens) {
+      await setTokensInKv([]);
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to clear Plaid access tokens from KV:", err);
   }
 
   memoryTokens.clear();

@@ -31,76 +31,92 @@ function applyOverrides(accounts: CreditCardAccount[]): CreditCardAccount[] {
 }
 
 export async function GET() {
-  if (useMock || !client) {
-    if (mockAccountsRemoved) {
+  try {
+    if (useMock || !client) {
+      if (mockAccountsRemoved) {
+        return NextResponse.json([]);
+      }
+      return NextResponse.json(applyOverrides(getMockAccounts()));
+    }
+
+    const tokens = await getAccessTokens();
+    if (tokens.length === 0) {
       return NextResponse.json([]);
     }
-    return NextResponse.json(applyOverrides(getMockAccounts()));
-  }
 
-  const tokens = await getAccessTokens();
-  if (tokens.length === 0) {
-    return NextResponse.json([]);
-  }
+    const accounts: CreditCardAccount[] = [];
+    let colorIndex = 0;
 
-  const accounts: CreditCardAccount[] = [];
-  let colorIndex = 0;
+    for (const accessToken of tokens) {
+      try {
+        const [accountsRes, liabilitiesRes] = await Promise.all([
+          client.accountsGet({ access_token: accessToken }),
+          client.liabilitiesGet({ access_token: accessToken }).catch(() => null),
+        ]);
 
-  for (const accessToken of tokens) {
-    try {
-      const [accountsRes, liabilitiesRes] = await Promise.all([
-        client.accountsGet({ access_token: accessToken }),
-        client.liabilitiesGet({ access_token: accessToken }).catch(() => null),
-      ]);
-
-      const creditCards = accountsRes.data.accounts.filter(
-        (a) => a.type === "credit"
-      );
-
-      const liabilities = liabilitiesRes?.data.liabilities.credit || [];
-
-      for (const acct of creditCards) {
-        const liability = liabilities.find(
-          (l) => l.account_id === acct.account_id
+        const creditCards = accountsRes.data.accounts.filter(
+          (a) => a.type === "credit"
         );
 
-        const currentBalance = acct.balances.current ?? 0;
-        const creditLimit = acct.balances.limit ?? 0;
+        const liabilities = liabilitiesRes?.data.liabilities.credit || [];
 
-        accounts.push({
-          id: acct.account_id,
-          name: acct.official_name || acct.name,
-          last4: acct.mask || "****",
-          institution: acct.name,
-          currentBalance,
-          creditLimit,
-          availableCredit: creditLimit - currentBalance,
-          paymentDueDate:
-            liability?.next_payment_due_date ||
-            new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-          minimumPayment: liability?.minimum_payment_amount ?? 25,
-          apr: liability?.aprs?.[0]?.apr_percentage
-            ? liability.aprs[0].apr_percentage / 100
-            : 0.1999,
-          lastPaymentAmount: liability?.last_payment_amount ?? 0,
-          lastPaymentDate:
-            liability?.last_payment_date ||
-            new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0],
-          color: CARD_COLORS[colorIndex++ % CARD_COLORS.length],
-        });
+        for (const acct of creditCards) {
+          const liability = liabilities.find(
+            (l) => l.account_id === acct.account_id
+          );
+
+          const currentBalance = acct.balances.current ?? 0;
+          const creditLimit = acct.balances.limit ?? 0;
+
+          accounts.push({
+            id: acct.account_id,
+            name: acct.official_name || acct.name,
+            last4: acct.mask || "****",
+            institution: acct.name,
+            currentBalance,
+            creditLimit,
+            availableCredit: creditLimit - currentBalance,
+            paymentDueDate:
+              liability?.next_payment_due_date ||
+              new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+            minimumPayment: liability?.minimum_payment_amount ?? 25,
+            apr: liability?.aprs?.[0]?.apr_percentage
+              ? liability.aprs[0].apr_percentage / 100
+              : 0.1999,
+            lastPaymentAmount: liability?.last_payment_amount ?? 0,
+            lastPaymentDate:
+              liability?.last_payment_date ||
+              new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0],
+            color: CARD_COLORS[colorIndex++ % CARD_COLORS.length],
+          });
+        }
+      } catch (err) {
+        console.error("Error fetching Plaid accounts:", err);
       }
-    } catch (err) {
-      console.error("Error fetching Plaid accounts:", err);
     }
-  }
 
-  return NextResponse.json(applyOverrides(accounts));
+    return NextResponse.json(applyOverrides(accounts));
+  } catch (err) {
+    console.error("Accounts API GET failed:", err);
+    return NextResponse.json(
+      { error: "Failed to fetch accounts" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE() {
-  await clearAccessTokens();
-  clearBalanceOverrides();
-  mockAccountsRemoved = true;
+  try {
+    await clearAccessTokens();
+    clearBalanceOverrides();
+    mockAccountsRemoved = true;
 
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Accounts API DELETE failed:", err);
+    return NextResponse.json(
+      { error: "Failed to remove accounts" },
+      { status: 500 }
+    );
+  }
 }

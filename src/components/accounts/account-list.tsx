@@ -15,7 +15,12 @@ export function AccountList() {
   const fetchAccounts = async () => {
     try {
       const res = await fetch("/api/accounts");
-      const data = await res.json();
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text || `Failed to fetch accounts (${res.status})`);
+      }
+
+      const data = text ? JSON.parse(text) : [];
       setAccounts(data);
       setLastUpdated(new Date());
     } catch (err) {
