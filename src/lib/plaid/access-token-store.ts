@@ -81,8 +81,8 @@ async function setTokensInKv(tokens: string[]) {
   const config = getKvConfig();
   if (!config) return;
 
-  // Use POST with JSON body to avoid URL encoding issues with complex values
-  await kvRequest("/set", "POST", [KV_KEY, JSON.stringify(tokens)]);
+  // POST /set/<key> with value as body — correct Upstash REST API format
+  await kvRequest(`/set/${encodeURIComponent(KV_KEY)}`, "POST", JSON.stringify(tokens));
 }
 
 export async function addAccessToken(token: string) {
