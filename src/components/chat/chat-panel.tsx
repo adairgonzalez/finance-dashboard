@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "@/types/chat";
+import { CreditCardAccount } from "@/types/account";
 import { ChatMessageBubble } from "./chat-message";
 import { Send, Loader2, Bot } from "lucide-react";
 
@@ -17,6 +18,19 @@ export function ChatPanel() {
   };
 
   useEffect(scrollToBottom, [messages]);
+
+  const getCurrentAccounts = async (): Promise<CreditCardAccount[]> => {
+    try {
+      const res = await fetch("/api/accounts");
+      const text = await res.text();
+      if (!res.ok) return [];
+
+      const parsed = text ? JSON.parse(text) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -42,10 +56,13 @@ export function ChatPanel() {
     setIsLoading(true);
 
     try {
+      const accounts = await getCurrentAccounts();
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          accounts,
           messages: [...messages, userMessage].map((m) => ({
             role: m.role,
             content: m.content,
