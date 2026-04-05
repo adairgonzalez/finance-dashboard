@@ -55,7 +55,7 @@ Guidelines:
     model: "claude-sonnet-4-20250514",
     max_tokens: 1024,
     system: systemPrompt,
-    messages: messages.map((m: { role: string; content: string }) => ({
+    messages: messages.map((m) => ({
       role: m.role,
       content: m.content,
     })),
