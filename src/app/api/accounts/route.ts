@@ -31,7 +31,9 @@ export async function GET() {
 
   const tokens = getAccessTokens();
   if (tokens.length === 0) {
-    return NextResponse.json([]);
+    // No Plaid accounts linked yet — fall back to mock accounts with any
+    // balance overrides applied (e.g. pushed by the Copilot balance fetcher script)
+    return NextResponse.json(applyOverrides(getMockAccounts()));
   }
 
   const accounts: CreditCardAccount[] = [];
