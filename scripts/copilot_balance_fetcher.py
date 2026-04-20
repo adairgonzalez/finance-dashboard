@@ -105,6 +105,7 @@ def fetch_accounts_from_db(db_path: Path) -> list[dict]:
                 b.account_id,
                 b.current_balance,
                 b.available_balance,
+                b."limit",
                 b.date
             FROM accountDailyBalance b
             INNER JOIN (
@@ -120,60 +121,59 @@ def fetch_accounts_from_db(db_path: Path) -> list[dict]:
             balance_map[row["account_id"]] = {
                 "current_balance": row["current_balance"],
                 "available_balance": row["available_balance"],
+                "limit": row["limit"],
                 "date": row["date"],
             }
     else:
         balance_map = {}
 
     # ── Try to get account names from Transactions table ──
+    # The DB has no accounts table, so we infer a label from the most
+    # common payment/autopay transaction name tied to each account_id.
     account_names = {}
     if "Transactions" in tables:
-        # Get the columns to understand the schema
-        cols = [col[1] for col in conn.execute("PRAGMA table_info(Transactions)").fetchall()]
-        print(f"  Transaction columns: {', '.join(cols)}")
-
-        # Get unique account identifiers and a recent transaction name for context
+        # For each account, grab the most descriptive internal_transfer name
+        # (autopay rows usually carry the card/bank name, e.g. "CAPITAL ONE AUTOPAY").
         name_rows = conn.execute("""
-            SELECT DISTINCT account_id
+            SELECT account_id,
+                   name,
+                   COUNT(*) as cnt
             FROM Transactions
-            WHERE user_deleted = 0 AND account_id IS NOT NULL
+            WHERE user_deleted = 0
+              AND account_id IS NOT NULL
+              AND type = 'internal_transfer'
+            GROUP BY account_id, name
+            ORDER BY account_id, cnt DESC
         """).fetchall()
 
         for row in name_rows:
             acct_id = row["account_id"]
-            account_names[acct_id] = acct_id  # default to ID
-
-    # ── Check if there's a dedicated accounts table ──
-    for tbl in tables:
-        if tbl.lower() in ("accounts", "account", "items"):
-            cols = [col[1] for col in conn.execute(f"PRAGMA table_info({tbl})").fetchall()]
-            print(f"  {tbl} columns: {', '.join(cols)}")
-
-            # Try to read account metadata
-            try:
-                acct_rows = conn.execute(f"SELECT * FROM {tbl}").fetchall()
-                for row in acct_rows:
-                    row_dict = dict(row)
-                    acct_id = row_dict.get("id") or row_dict.get("account_id")
-                    name = row_dict.get("name") or row_dict.get("official_name") or row_dict.get("institution_name")
-                    if acct_id and name:
-                        account_names[acct_id] = name
-            except Exception:
-                pass
+            if acct_id not in account_names:
+                account_names[acct_id] = row["name"]  # most-common transfer name
 
     # ── Build account list ──
     for acct_id, bal_data in balance_map.items():
-        name = account_names.get(acct_id, acct_id)
-        balance = bal_data["current_balance"] or 0
+        balance   = bal_data["current_balance"] or 0
         available = bal_data["available_balance"]
+        limit_val = bal_data["limit"]
 
-        # Infer type from balance sign and available credit
-        if balance < 0 or (available and available != balance):
+        # A non-null limit column is the definitive credit-card signal.
+        # Copilot stores credit balances as positive owed amounts.
+        if limit_val is not None:
             acct_type = "credit"
-            limit_val = abs(balance) + (available or 0) if available else None
+        elif available is not None and available != balance:
+            acct_type = "credit"
+            limit_val = balance + available  # derive limit if missing
         else:
             acct_type = "depository"
-            limit_val = None
+
+        # Build a human-readable label from the transfer-name hint, or fall
+        # back to a shortened account ID so the report is still readable.
+        raw_label = account_names.get(acct_id, "")
+        if raw_label:
+            name = raw_label
+        else:
+            name = f"Account …{acct_id[-8:]}"
 
         accounts.append({
             "id": acct_id,

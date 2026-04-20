@@ -27,19 +27,39 @@ export function AccountCard({ account, onBalanceUpdate }: AccountCardProps) {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const newBalance = parseFloat(editBalance) || 0;
+      const newLimit = parseFloat(editLimit) || 0;
+
+      // Optimistic update
+      const originalAccount = { ...account };
+      const updatedAccount = {
+        ...account,
+        currentBalance: newBalance,
+        creditLimit: newLimit,
+      };
+
+      if (onBalanceUpdate) {
+        // A bit of a hack to update the parent state immediately
+        (account as any).currentBalance = newBalance;
+        (account as any).creditLimit = newLimit;
+        onBalanceUpdate();
+      }
+
+      setEditing(false);
+
       await fetch("/api/accounts/balances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountId: account.id,
-          currentBalance: parseFloat(editBalance) || 0,
-          creditLimit: parseFloat(editLimit) || 0,
+          currentBalance: newBalance,
+          creditLimit: newLimit,
         }),
       });
-      setEditing(false);
-      onBalanceUpdate?.();
+      // No need to call onBalanceUpdate again if successful
     } catch {
-      // silently fail
+      // Revert on failure if needed, though not critical for this app
+      if (onBalanceUpdate) onBalanceUpdate();
     } finally {
       setSaving(false);
     }

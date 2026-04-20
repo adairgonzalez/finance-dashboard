@@ -27,13 +27,17 @@ export async function POST(req: NextRequest) {
   let oneTimeBonus = 0;
   let payFrequency = "biweekly";
   try {
-    const p = await kvGet<{
-      monthlyPaycheck: number;
-      partnerMonthlyIncome: number;
-      oneTimeBonus: number;
-      payFrequency: string;
-    }>("user:profile");
+    const [b, p] = await Promise.all([
+      kvGet<Bill[]>("user:bills"),
+      kvGet<{
+        monthlyPaycheck: number;
+        partnerMonthlyIncome: number;
+        oneTimeBonus: number;
+        payFrequency: string;
+      }>("user:profile"),
+    ]);
 
+    if (b) bills = b;
     if (p) {
       monthlyPaycheck = p.monthlyPaycheck || 0;
       partnerMonthlyIncome = p.partnerMonthlyIncome || 0;
